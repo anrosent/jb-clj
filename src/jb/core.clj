@@ -61,7 +61,7 @@
                   t (cond
                       (map? v)  (infer v)
                       (coll? v) [(reduce combine {} (map infer v))]
-                      :else     (->> acc k get-type))]
+                      :else     (get-type (acc k)))]
               (assoc acc k {:type t :required true})))
           m
           (keys m)))
