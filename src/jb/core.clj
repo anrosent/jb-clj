@@ -67,9 +67,11 @@
           (keys m)))
 
 (defn browse 
-  "Pretty-prints the schema"
+  "Pretty-prints the schema as JSON"
   [schema]
-  (clojure.pprint/pprint schema))
+  (-> schema
+      (json/generate-string {:pretty true})
+      println))
 
 (defn -main
   [& args]
