@@ -3,14 +3,17 @@
     [cheshire.core :as json]))
 
 (defn get-type
+  "I: any
+   O: representation of the Type of v"
   [v]
   (when (some? v)
     (-> v type .getName)))
 
-
+;; Declare here so we can mutually recur
 (declare combine)
 
 (defn combine-node
+  "Merges two schemas for the same property"
   [{t-in :type r-in :required} {t-new :type r-new :required}]
   (cond 
     (and (map? t-in) (map? t-new)) {:type (combine t-in t-new)
@@ -26,6 +29,7 @@
            :required (and r-in r-new)}))
 
 (defn combine
+  "Merges two Schemas for the same object"
   [m1 m2]
   (reduce (fn [m k]
             (let [node-new (get m2 k)
@@ -40,23 +44,30 @@
           m1
           (set (concat (keys m1) (keys m2)))))
 
-(defn browse
+(defn infer
+  "Runs schema-inference on the parsed JSON object
+   I: map
+   O: map, in a recursive Schema description type"
   [m]
   (reduce (fn [acc k]
             (let [v (acc k)]
               (cond
-                (map? v)  (assoc acc k {:type (browse v)
+                (map? v)  (assoc acc k {:type (infer v)
                                         :required true})
-                (coll? v) (assoc acc k {:type [(reduce combine {} (map browse v))]
+                (coll? v) (assoc acc k {:type [(reduce combine {} (map infer v))]
                                         :required true})
                 :else (assoc acc k {:type (-> (acc k) get-type)
                                     :required true}))))
           m
           (keys m)))
 
+(defn browse 
+  "Pretty-prints the schema"
+  [schema]
+  (clojure.pprint/pprint schema))
 
 (defn -main
   [& args]
   (-> (json/parse-stream *in*)
-      browse
-      clojure.pprint/pprint))
+      infer
+      browse))
