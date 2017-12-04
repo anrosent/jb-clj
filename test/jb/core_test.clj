@@ -7,35 +7,59 @@
     (is (= nil (infer nil))))
 
   (testing "single"
-    (is (= {:foo {:type "java.lang.Long" :required true}}
+    (is (= {:foo {:kind :primitive
+                  :type "java.lang.Long" 
+                  :required true}}
            (infer {:foo 1}))))
 
   (testing "two keys, different types"
-    (is (= {:foo {:type "java.lang.Long" :required true}
-            :bar {:type "java.lang.String" :required true}}
+    (is (= {:foo {:kind :primitive
+                  :type "java.lang.Long" 
+                  :required true}
+            :bar {:kind :primitive
+                  :type "java.lang.String" 
+                  :required true}}
            (infer {:foo 1 :bar "baz"}))))
 
   (testing "empty array"
-    (is (= {:qux {:type [{}] :required true}}
+    (is (= {:qux {:kind :list
+                  :type {}
+                  :required true}}
            (infer {:qux []}))))
 
   (testing "array with object"
-    (is (= {:qux {:type [{:foo {:type "java.lang.Long" :required true}}]
+    (is (= {:qux {:kind :list
+                  :type {:foo {:kind :primitive
+                               :type "java.lang.Long" 
+                               :required true}}
                   :required true}}
            (infer {:qux [{:foo 1}]}))))
 
   (testing "array with multiple objects, field sparsity"
-    (is (= {:qux {:type [{:foo {:type "java.lang.Long" :required false}
-                          :bar {:type "java.lang.String" :required false}}]
+    (is (= {:qux {:kind :list
+                  :type {:foo {:kind :primitive
+                               :type "java.lang.Long" 
+                               :required false}
+                          :bar {:kind :primitive
+                                :type "java.lang.String" 
+                                :required false}}
                   :required true}}
            (infer {:qux [{:foo 1} {:bar "bar"}]}))))
 
   (testing "nested object"
-    (is (= {:qux {:type {:foo {:type "java.lang.Long" :required true}} :required true}}
+    (is (= {:qux {:kind :map
+                  :type {:foo {:kind :primitive
+                               :type "java.lang.Long" 
+                               :required true}} 
+                  :required true}}
            (infer {:qux {:foo 1}}))))
 
   (testing "array with nested object, field sparsity"
-    (is (= {:qux {:type [{:foo {:type {:bar {:type "java.lang.String" :required false}}
-                                :required true}}]
+    (is (= {:qux {:kind :list
+                  :type {:foo {:kind :map
+                               :type {:bar {:kind :union
+                                            :type "java.lang.String" 
+                                            :required false}}
+                                :required true}}
                   :required true}}
            (infer {:qux [{:foo {:bar "1"}} {:foo {}}]})))))

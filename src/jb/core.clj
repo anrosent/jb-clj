@@ -14,8 +14,9 @@
 
 (defn combine-node
   "Merges two schemas for the same property"
-  [{t-in :type r-in :required} {t-new :type r-new :required}]
+  [{k-in :kind t-in :type r-in :required} {k-new :kind t-new :type r-new :required}]
   (let [r (and r-in r-new)
+        kind (if (= t-in t-new) k-in :union)
         t (cond 
             (and (map? t-in) 
                  (map? t-new))    (combine t-in t-new)
@@ -26,7 +27,7 @@
                                                      (if (set? t-new) t-new #{t-new}))
             (= t-in t-new)        t-in
             :else                 #{t-in t-new})]
-    {:type t :required r}))
+    {:kind kind :type t :required r}))
 
 (defn combine
   "Merges two Schemas for the same object"
@@ -58,11 +59,11 @@
   [m]
   (reduce (fn [acc k]
             (let [v (acc k)
-                  t (cond
-                      (map? v)  (infer v)
-                      (coll? v) [(reduce combine {} (map infer v))]
-                      :else     (get-type (acc k)))]
-              (assoc acc k {:type t :required true})))
+                  [kind t] (cond
+                      (map? v)  [:map (infer v)]
+                      (coll? v) [:list (reduce combine {} (map infer v))]
+                      :else     [:primitive (get-type (acc k))])]
+              (assoc acc k {:kind kind :type t :required true})))
           m
           (keys m)))
 
