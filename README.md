@@ -91,7 +91,7 @@ Consumers of `jb.core/infer-schema` will see namespaced keywords where you see `
 
 For a more readable summary of the schema, we can use `jb.browse`.
 ```
-$   cat data.json | lein run -m jb.core
+$   cat data.json | lein run -m jb.browse
 {
     "foo" : "java.lang.Integer",
     "bar" : [ {
