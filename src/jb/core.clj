@@ -1,81 +1,119 @@
 (ns jb.core
   (:require 
+    [clojure.spec.alpha :as s]
     [cheshire.core :as json]))
 
-(defn get-type
+(s/def ::name string?)
+(s/def ::value string?)
+(s/def ::id keyword?)
+
+(defmulti  type-id ::id)
+(defmethod type-id ::type.id.always [_] (s/keys :req [::id ::schema]))
+(defmethod type-id ::type.id.maybe [_] (s/keys :req [::id ::schema]))
+(s/def ::type (s/multi-spec type-id ::id))
+
+(defmulti  schema-id ::id)
+(defmethod schema-id ::schema.id.union [_] (s/keys :req [::id ::schema.data.union]))
+(defmethod schema-id ::schema.id.primitive [_] (s/keys :req [::id ::schema.data.primitive]))
+(defmethod schema-id ::schema.id.object [_] (s/keys :req [::id ::schema.data.object]))
+(defmethod schema-id ::schema.id.listof [_] (s/keys :req [::id ::schema.data.listof]))
+(s/def ::schema (s/multi-spec schema-id ::id))
+(s/def ::schema.data.union (s/coll-of ::schema))
+(s/def ::schema.data.object (s/map-of string? ::type))
+(s/def ::schema.data.listof ::type)
+(s/def ::schema.data.primitive ::name)
+
+(s/fdef get-name
+        :args (s/cat :v ::value)
+        :ret ::name)
+(s/fdef combine-types
+        :args (s/cat :type-left ::type :type-right ::type)
+        :ret ::type)
+(s/fdef combine-schemas
+        :args (s/cat :schema-left ::schema :schema-right ::schema)
+        :ret ::schema)
+(s/fdef infer-schema
+        :args (s/cat :m ::json)
+        :ret ::schema)
+(s/fdef browse
+        :args (s/cat :schema ::schema)
+        :ret string?)
+
+(defn get-name
   "I: any
   O: representation of the Type of v"
   [v]
   (when (some? v)
     (-> v type .getName)))
 
-;; Declare here so we can mutually recur
-(declare combine)
+(declare combine-types combine-schemas infer-schema infer-type)
 
-(defn combine-node
-  "Merges two schemas for the same property"
-  [{k-in :kind t-in :type r-in :required} {k-new :kind t-new :type r-new :required}]
-  (let [r (and r-in r-new)
-        kind (if (= t-in t-new) k-in :union)
-        t (cond 
-            (and (map? t-in) 
-                 (map? t-new))    (combine t-in t-new)
-            (and (vector? t-in) 
-                 (vector? t-new)) (combine (first t-in) (first t-new))
-            (or (set? t-in) 
-                (set? t-new))     (clojure.set/union (if (set? t-in) t-in #{t-in})
-                                                     (if (set? t-new) t-new #{t-new}))
-            (= t-in t-new)        t-in
-            :else                 #{t-in t-new})]
-    {:kind kind :type t :required r}))
+(defn combine-schemas
+  "Merges two schemas"
+  [{id-left ::id :as schema-left} {id-right ::id :as schema-right}]
+  (if (not= id-left id-right)
+    {::id ::schema.id.union
+     ::schema.data.union #{schema-left schema-right}}
+    (case id-left
+      ::schema.id.object (let [object-left  (::schema.data.object schema-left)
+                               object-right (::schema.data.object schema-right)
+                               allkeys (set (concat (keys object-left) (keys object-right)))]
+                           {::id ::schema.id.object
+                            ::schema.data.object (zipmap allkeys (map (comp (partial apply combine-types) 
+                                                                            (juxt object-left object-right))
+                                                                      allkeys))})
+      ::schema.id.listof (let [type-left (::schema.data.listof schema-left)
+                               type-right (::schema.data.listof schema-right)]
+                           {::id ::schema.id.listof
+                            ::schema.data.listof (combine-types type-left type-right)})
+      ::schema.id.primitive (let [name-left (::schema.data.primitive schema-left)
+                                  name-right (::schema.data.primitive schema-right)]
+                              (if (= name-left name-right)
+                                {::id ::schema.id.primitive
+                                 ::schema.data.primitive name-left}
+                                {::id ::schema.id.union
+                                 ::schema.data.union #{schema-left schema-right}})))))
 
-(defn combine
-  "Merges two Schemas for the same object"
-  [m1 m2]
-  (reduce (fn [m k]
-            (let [node-new (get m2 k)
-                  node-in (get m k)
-                  combined (cond 
+(defn combine-types 
+  [{id-left ::id schema-left ::schema :as type-left} {id-right ::id schema-right ::schema :as type-right}]
+  (cond 
+    (nil? type-left) (assoc type-right ::id ::type.id.maybe)
+    (nil? type-right) (assoc type-left ::id ::type.id.maybe)
+    :else (let [schema (cond 
+                         (= schema-left schema-right) type-left
+                         :else (combine-schemas schema-left schema-right))
+                id (cond
+                     (= id-left id-right) id-left
+                     :else ::type.id.maybe)]
+            {::id id ::schema schema})))
 
-                             ;; Combine if both nontrivial 
-                             (and (some? node-in) (some? node-new)) (combine-node node-in node-new)
-
-                             ;; Only not required if m1 doesn't have key *and* is nontrivial
-                             (some? node-new)  (assoc node-new :required (empty? m1))
-
-                             ;; Existing key isn't in new node, so not required
-                             (some? node-in)  (assoc node-in :required false)
-
-                             ;; this can't happen!!
-                             :else (throw (Exception. "Unreachable code has been reached!")))]
-              (assoc m k combined)))
-          m1
-          (set (concat (keys m1) (keys m2)))))
-
-(defn infer
-  "Runs schema-inference on the parsed JSON object
-  I: map
+(defn infer-type
+  "Runs inference on the parsed JSON object
+  I: any
   O: a Schema descriptor map"
-  [m]
-  (reduce (fn [acc k]
-            (let [v (acc k)
-                  [kind t] (cond
-                      (map? v)  [:map (infer v)]
-                      (coll? v) [:list (reduce combine {} (map infer v))]
-                      :else     [:primitive (get-type (acc k))])]
-              (assoc acc k {:kind kind :type t :required true})))
-          m
-          (keys m)))
+  [data]
+  {::id ::type.id.always
+   ::schema (infer-schema data)})
+
+(defn infer-schema
+  [data]
+  (cond
+    (map? data) {::id ::schema.id.object
+                 ::schema.data.object (zipmap (keys data) (map infer-type (vals data)))}
+    (coll? data) {::id ::schema.id.listof
+                  ::schema.data.listof (reduce combine-types (map infer-type data))}
+    :else        {::id ::schema.id.primitive
+                  ::schema.data.primitive (get-name data)}))
 
 (defn browse 
   "Pretty-prints the schema as JSON"
   [schema]
   (-> schema
-      (json/generate-string {:pretty true})
-      println))
+      (json/generate-string {:pretty true})))
 
 (defn -main
   [& args]
-  (-> (json/parse-stream *in*)
-      infer
-      browse))
+  (time (-> (json/parse-stream *in*)
+      infer-schema
+      browse
+      println)))
