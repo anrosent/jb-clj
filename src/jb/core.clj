@@ -48,12 +48,22 @@
 
 (declare combine-types combine-schemas infer-schema infer-type)
 
+(defn make-union
+  [{id-left ::id :as schema-left} {id-right ::id :as schema-right}]
+  (cond 
+    (and (= id-left ::schema.id.union)
+         (= id-right ::schema.id.union)) (clojure.set/union (::schema.data.union schema-left)
+                                                            (::schema.data.union schema-right))
+    (= id-left ::schema.id.union)        (conj (::schema.data.union schema-left) schema-right)
+    (= id-right ::schema.id.union)       (conj (::schema.data.union schema-right) schema-left)
+    :else                                #{schema-left schema-right}))
+
 (defn combine-schemas
   "Merges two schemas"
   [{id-left ::id :as schema-left} {id-right ::id :as schema-right}]
   (if (not= id-left id-right)
     {::id ::schema.id.union
-     ::schema.data.union #{schema-left schema-right}}
+     ::schema.data.union (make-union schema-left schema-right)}
     (case id-left
       ::schema.id.object (let [object-left  (::schema.data.object schema-left)
                                object-right (::schema.data.object schema-right)
@@ -72,7 +82,7 @@
                                 {::id ::schema.id.primitive
                                  ::schema.data.primitive name-left}
                                 {::id ::schema.id.union
-                                 ::schema.data.union #{schema-left schema-right}})))))
+                                 ::schema.data.union (make-union schema-left schema-right)})))))
 
 (defn combine-types 
   [{id-left ::id schema-left ::schema :as type-left} {id-right ::id schema-right ::schema :as type-right}]
@@ -80,7 +90,7 @@
     (nil? type-left) (assoc type-right ::id ::type.id.maybe)
     (nil? type-right) (assoc type-left ::id ::type.id.maybe)
     :else (let [schema (cond 
-                         (= schema-left schema-right) type-left
+                         (= schema-left schema-right) schema-left
                          :else (combine-schemas schema-left schema-right))
                 id (cond
                      (= id-left id-right) id-left
