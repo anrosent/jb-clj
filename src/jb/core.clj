@@ -46,7 +46,7 @@
   (when (some? v)
     (-> v type .getName)))
 
-(declare combine-types combine-schemas infer-schema infer-type)
+(declare combine-types combine-schemas infer-schema infer-type simplify)
 
 (defn make-union
   [{id-left ::id :as schema-left} {id-right ::id :as schema-right}]
@@ -115,15 +115,33 @@
     :else        {::id ::schema.id.primitive
                   ::schema.data.primitive (get-name data)}))
 
+(defn map-vals [f m] (zipmap (keys m) (map f (vals m))))
+
+(defn- simplify-type [{id ::id schema ::schema}] 
+  (if (= id ::type.id.maybe) 
+    {:maybe (simplify schema)}
+    (simplify schema)))
+
+(defmulti simplify ::id)
+(defmethod simplify ::schema.id.primitive [{n ::schema.data.primitive}] n)
+(defmethod simplify ::schema.id.listof [{t ::schema.data.listof}] [(simplify-type t)]) ;;cheating a bit
+(defmethod simplify ::schema.id.object [{m ::schema.data.object}] (map-vals simplify-type m))
+(defmethod simplify ::schema.id.union [{m ::schema.data.union}] {:union (map simplify m)})
+
+
+(defn render
+  [schema]
+  (json/generate-string (simplify schema) {:pretty true}))
+
 (defn browse 
   "Pretty-prints the schema as JSON"
-  [schema]
-  (-> schema
-      (json/generate-string {:pretty true})))
+  [data]
+  (-> data
+      infer-schema
+      render))
 
 (defn -main
   [& args]
   (time (-> (json/parse-stream *in*)
-      infer-schema
-      browse
-      println)))
+            browse
+            println)))
