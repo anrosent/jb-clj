@@ -39,16 +39,16 @@
         :args (s/cat :schema ::schema)
         :ret string?)
 
-(defn get-name
+(defn- get-name
   "I: any
   O: representation of the Type of v"
   [v]
   (when (some? v)
     (-> v type .getName)))
 
-(declare combine-types combine-schemas infer-schema infer-type simplify)
+(declare combine-types combine-schemas infer-schema infer-type)
 
-(defn make-union
+(defn- make-union
   [{id-left ::id :as schema-left} {id-right ::id :as schema-right}]
   (cond 
     (and (= id-left ::schema.id.union)
@@ -58,7 +58,7 @@
     (= id-right ::schema.id.union)       (conj (::schema.data.union schema-right) schema-left)
     :else                                #{schema-left schema-right}))
 
-(defn combine-schemas
+(defn- combine-schemas
   "Merges two schemas"
   [{id-left ::id :as schema-left} {id-right ::id :as schema-right}]
   (if (not= id-left id-right)
@@ -84,7 +84,7 @@
                                 {::id ::schema.id.union
                                  ::schema.data.union (make-union schema-left schema-right)})))))
 
-(defn combine-types 
+(defn- combine-types 
   [{id-left ::id schema-left ::schema :as type-left} {id-right ::id schema-right ::schema :as type-right}]
   (cond 
     (nil? type-left) (assoc type-right ::id ::type.id.maybe)
@@ -97,7 +97,7 @@
                      :else ::type.id.maybe)]
             {::id id ::schema schema})))
 
-(defn infer-type
+(defn- infer-type
   "Runs inference on the parsed JSON object
   I: any
   O: a Schema descriptor map"
@@ -115,33 +115,9 @@
     :else        {::id ::schema.id.primitive
                   ::schema.data.primitive (get-name data)}))
 
-(defn map-vals [f m] (zipmap (keys m) (map f (vals m))))
-
-(defn- simplify-type [{id ::id schema ::schema}] 
-  (if (= id ::type.id.maybe) 
-    {:maybe (simplify schema)}
-    (simplify schema)))
-
-(defmulti simplify ::id)
-(defmethod simplify ::schema.id.primitive [{n ::schema.data.primitive}] n)
-(defmethod simplify ::schema.id.listof [{t ::schema.data.listof}] [(simplify-type t)]) ;;cheating a bit
-(defmethod simplify ::schema.id.object [{m ::schema.data.object}] (map-vals simplify-type m))
-(defmethod simplify ::schema.id.union [{m ::schema.data.union}] {:union (map simplify m)})
-
-
-(defn render
-  [schema]
-  (json/generate-string (simplify schema) {:pretty true}))
-
-(defn browse 
-  "Pretty-prints the schema as JSON"
-  [data]
-  (-> data
-      infer-schema
-      render))
-
 (defn -main
   [& args]
-  (time (-> (json/parse-stream *in*)
-            browse
-            println)))
+  (-> (json/parse-stream *in*)
+            infer-schema
+            (json/generate-string {:pretty true})
+            println))
